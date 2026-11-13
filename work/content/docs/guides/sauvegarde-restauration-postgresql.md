@@ -11,7 +11,7 @@ weight: 1
 Deux mécanismes complémentaires envoient les données de `pg-main` vers le S3
 Garage, et permettent de les en ramener :
 
-| | **Logique, par schéma** (ce guide) | **Physique, instance complète** ([étape 10](../../installation/10-sauvegardes-postgresql)) |
+| | **Logique, par schéma** (ce guide) | **Physique, instance complète** ([étape 10](../installation/10-sauvegardes-postgresql.md)) |
 |---|---|---|
 | Outil | `pg_dump` / `pg_restore` (format custom) | barman-cloud (plugin CNPG) |
 | Granularité | **un schéma** d'une base | toute l'instance (toutes les bases) |
@@ -234,7 +234,7 @@ SELECT conname, contype FROM pg_constraint WHERE connamespace = 'ventes'::regnam
 Quand c'est **toute l'instance** qu'il faut récupérer (cluster perdu,
 `make recreate`, retour à un instant précis), on utilise les sauvegardes
 physiques barman. La procédure détaillée et testée est dans
-[l'étape 10](../../installation/10-sauvegardes-postgresql#restauration-testée-le-2026-11-11).
+[l'étape 10](../installation/10-sauvegardes-postgresql.md#restauration-testée-le-2026-11-11).
 
 ```mermaid
 flowchart LR
@@ -276,7 +276,7 @@ un instant donné dans un cluster temporaire, en extraire un seul schéma avec
   vues et les clés étrangères des **autres** schémas qui pointent vers le schéma
   restauré, et ces objets ne sont pas recréés. Vérifier avant avec :
   `SELECT * FROM pg_depend` ou en restaurant d'abord dans une base de test.
-- **CDC vers RisingWave** ([étape 13](../../installation/13-cdc-pg-main-risingwave)) :
+- **CDC vers RisingWave** ([étape 13](../installation/13-cdc-pg-main-risingwave.md)) :
   la réplication logique ne transmet **pas** les DDL. Si un schéma contenant des
   tables répliquées est restauré, le `DROP` n'est pas propagé, et les données
   rechargées arrivent comme des `INSERT`. Il faut alors recréer les tables CDC

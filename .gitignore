@@ -9,9 +9,6 @@ work/resources/_gen/
 work/.hugo_build.lock
 work/public/
 
-# Site Hugo généré (make docs) : seules les sources work/ sont versionnées
-/docs/
-
 # Fichiers personnels du poste
 claude.sh
 

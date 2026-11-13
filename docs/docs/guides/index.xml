@@ -1,0 +1,444 @@
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>Dagobah Data Lab – Guides</title><link>https://laurentpoirierfr.github.io/dagobah-data-lab/docs/guides/</link><description>Recent content in Guides on Dagobah Data Lab</description><generator>Hugo -- gohugo.io</generator><language>fr-fr</language><atom:link href="https://laurentpoirierfr.github.io/dagobah-data-lab/docs/guides/index.xml" rel="self" type="application/rss+xml"/><item><title>Sauvegarde et restauration PostgreSQL ⇄ S3</title><link>https://laurentpoirierfr.github.io/dagobah-data-lab/docs/guides/sauvegarde-restauration-postgresql/</link><pubDate>Mon, 01 Jan 0001 00:00:00 +0000</pubDate><guid>https://laurentpoirierfr.github.io/dagobah-data-lab/docs/guides/sauvegarde-restauration-postgresql/</guid><description>
+&lt;div
+data-alert="note" class="hextra-alert"
+&gt;
+&lt;p class="hextra-alert-title"&gt;&lt;svg height=16px class="hextra-alert-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" aria-hidden="true"&gt;&lt;path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/&gt;&lt;/svg&gt;&lt;span class="hextra-alert-title-text"&gt;Note&lt;/span&gt;
+&lt;/p&gt;
+&lt;div class="hextra-alert-content"&gt;&lt;p&gt;Mode opératoire testé le 2026-11-11 sur &lt;code&gt;pg-main&lt;/code&gt; (PostgreSQL 17, CloudNativePG)
+et Garage S3 (bucket &lt;code&gt;cnpg-backups&lt;/code&gt;).&lt;/p&gt;&lt;/div&gt;
+&lt;/div&gt;
+&lt;p&gt;Deux mécanismes complémentaires envoient les données de &lt;code&gt;pg-main&lt;/code&gt; vers le S3
+Garage, et permettent de les en ramener :&lt;/p&gt;
+&lt;table&gt;
+&lt;thead&gt;
+&lt;tr&gt;
+&lt;th&gt;&lt;/th&gt;
+&lt;th&gt;&lt;strong&gt;Logique, par schéma&lt;/strong&gt; (ce guide)&lt;/th&gt;
+&lt;th&gt;&lt;strong&gt;Physique, instance complète&lt;/strong&gt; (&lt;a href="https://laurentpoirierfr.github.io/dagobah-data-lab/docs/installation/10-sauvegardes-postgresql/"&gt;étape 10&lt;/a&gt;)&lt;/th&gt;
+&lt;/tr&gt;
+&lt;/thead&gt;
+&lt;tbody&gt;
+&lt;tr&gt;
+&lt;td&gt;Outil&lt;/td&gt;
+&lt;td&gt;&lt;code&gt;pg_dump&lt;/code&gt; / &lt;code&gt;pg_restore&lt;/code&gt; (format custom)&lt;/td&gt;
+&lt;td&gt;barman-cloud (plugin CNPG)&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td&gt;Granularité&lt;/td&gt;
+&lt;td&gt;&lt;strong&gt;un schéma&lt;/strong&gt; d&amp;rsquo;une base&lt;/td&gt;
+&lt;td&gt;toute l&amp;rsquo;instance (toutes les bases)&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td&gt;Déclenchement&lt;/td&gt;
+&lt;td&gt;à la demande : &lt;code&gt;make pg-backup&lt;/code&gt;&lt;/td&gt;
+&lt;td&gt;continu (WAL) + quotidien 02:00&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td&gt;Restauration&lt;/td&gt;
+&lt;td&gt;dans la base d&amp;rsquo;origine &lt;strong&gt;ou une autre base&lt;/strong&gt;, sans arrêt&lt;/td&gt;
+&lt;td&gt;&lt;strong&gt;nouveau cluster&lt;/strong&gt; CNPG&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td&gt;Point de restauration&lt;/td&gt;
+&lt;td&gt;l&amp;rsquo;instant du dump&lt;/td&gt;
+&lt;td&gt;&lt;strong&gt;n&amp;rsquo;importe quel instant&lt;/strong&gt; (PITR)&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td&gt;Emplacement S3&lt;/td&gt;
+&lt;td&gt;&lt;code&gt;s3://cnpg-backups/logical/&amp;lt;base&amp;gt;/&amp;lt;schéma&amp;gt;/&amp;lt;horodatage&amp;gt;.dump&lt;/code&gt;&lt;/td&gt;
+&lt;td&gt;&lt;code&gt;s3://cnpg-backups/pg-main/&lt;/code&gt;&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td&gt;Cas d&amp;rsquo;usage&lt;/td&gt;
+&lt;td&gt;erreur applicative sur un schéma, copie vers une autre base, archivage, migration&lt;/td&gt;
+&lt;td&gt;perte de l&amp;rsquo;instance, &lt;code&gt;make recreate&lt;/code&gt;, retour à un instant précis&lt;/td&gt;
+&lt;/tr&gt;
+&lt;/tbody&gt;
+&lt;/table&gt;
+&lt;h2 data-hextra-search-id="vue-densemble"&gt;Vue d&amp;rsquo;ensemble&lt;span class="hx:absolute hx:-mt-20" id="vue-densemble"&gt;&lt;/span&gt;
+&lt;a href="#vue-densemble" class="subheading-anchor" aria-label="Lien permanent vers cette section"&gt;&lt;/a&gt;&lt;/h2&gt;&lt;div role="img" aria-label="Diagramme"&gt;
+&lt;pre class="mermaid hx:mt-6"&gt;
+flowchart LR
+subgraph PG[&amp;#34;pg-main (CNPG, 3 instances)&amp;#34;]
+direction TB
+APP[(base app&amp;lt;br/&amp;gt;schémas public, ventes…)]
+WAL[[WAL]]
+end
+subgraph S3[&amp;#34;Garage S3 — bucket cnpg-backups&amp;#34;]
+direction TB
+L[&amp;#34;logical/app/ventes/&amp;lt;br/&amp;gt;20261111T215554Z.dump&amp;#34;]
+B[&amp;#34;pg-main/&amp;lt;br/&amp;gt;base/ + wals/&amp;#34;]
+end
+APP -- &amp;#34;make pg-backup&amp;lt;br/&amp;gt;(pg_dump -n schéma)&amp;#34; --&amp;gt; L
+L -- &amp;#34;make pg-restore&amp;lt;br/&amp;gt;(pg_restore, 1 transaction)&amp;#34; --&amp;gt; APP
+WAL -- &amp;#34;archivage continu&amp;lt;br/&amp;gt;(barman-cloud)&amp;#34; --&amp;gt; B
+APP -- &amp;#34;sauvegarde quotidienne&amp;lt;br/&amp;gt;(ScheduledBackup)&amp;#34; --&amp;gt; B
+B -- &amp;#34;bootstrap.recovery&amp;lt;br/&amp;gt;(nouveau cluster, PITR)&amp;#34; --&amp;gt; NEW[(pg-restore-test /&amp;lt;br/&amp;gt;nouveau pg-main)]
+&lt;/pre&gt;
+&lt;/div&gt;&lt;h3 data-hextra-search-id="quelle-méthode-choisir-"&gt;Quelle méthode choisir ?&lt;span class="hx:absolute hx:-mt-20" id="quelle-méthode-choisir-"&gt;&lt;/span&gt;
+&lt;a href="#quelle-m%c3%a9thode-choisir-" class="subheading-anchor" aria-label="Lien permanent vers cette section"&gt;&lt;/a&gt;&lt;/h3&gt;&lt;div role="img" aria-label="Diagramme"&gt;
+&lt;pre class="mermaid hx:mt-6"&gt;
+flowchart TD
+Q{Que faut-il récupérer ?}
+Q --&amp;gt;|Un schéma abîmé : tables supprimées,&amp;lt;br/&amp;gt;données corrompues par l&amp;#39;application| L1[Restauration logique du schéma&amp;lt;br/&amp;gt;make pg-restore DB=… SCHEMA=…]
+Q --&amp;gt;|Vérifier une sauvegarde ou copier&amp;lt;br/&amp;gt;un schéma vers une autre base| L2[Restauration logique vers une autre base&amp;lt;br/&amp;gt;make pg-restore … TARGET=autre_base]
+Q --&amp;gt;|Toute l&amp;#39;instance : cluster perdu,&amp;lt;br/&amp;gt;make recreate| P1[Restauration physique&amp;lt;br/&amp;gt;nouveau Cluster CNPG + barman]
+Q --&amp;gt;|Revenir à un instant précis&amp;lt;br/&amp;gt;avant une erreur, toutes bases confondues| P2[PITR physique&amp;lt;br/&amp;gt;recoveryTarget.targetTime]
+L1 --&amp;gt; OK([Sans arrêt de pg-main])
+L2 --&amp;gt; OK
+P1 --&amp;gt; NC([Nouveau cluster, bascule des applications])
+P2 --&amp;gt; NC
+&lt;/pre&gt;
+&lt;/div&gt;&lt;h2 data-hextra-search-id="sauvegarde-logique-dun-schéma"&gt;Sauvegarde logique d&amp;rsquo;un schéma&lt;span class="hx:absolute hx:-mt-20" id="sauvegarde-logique-dun-schéma"&gt;&lt;/span&gt;
+&lt;a href="#sauvegarde-logique-dun-sch%c3%a9ma" class="subheading-anchor" aria-label="Lien permanent vers cette section"&gt;&lt;/a&gt;&lt;/h2&gt;&lt;div class="hextra-code-block hx:relative hx:mt-6 hx:first:mt-0 hx:group/code"&gt;
+&lt;div&gt;&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;make pg-backup &lt;span class="nv"&gt;DB&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;app &lt;span class="nv"&gt;SCHEMA&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;ventes&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;&lt;div class="hextra-code-copy-btn-container hx:opacity-0 hx:transition hx:group-hover/code:opacity-100 hx:flex hx:gap-1 hx:absolute hx:m-[11px] hx:right-0 hx:top-0"&gt;
+&lt;button
+class="hextra-code-copy-btn hx:group/copybtn hx:cursor-pointer hx:transition-all hx:active:opacity-50 hx:bg-primary-700/5 hx:border hx:border-black/5 hx:text-gray-600 hx:hover:text-gray-900 hx:rounded-md hx:p-1.5 hx:dark:bg-primary-300/10 hx:dark:border-white/10 hx:dark:text-gray-400 hx:dark:hover:text-gray-50"
+title="Copier le code"
+aria-label="Copier le code"
+data-copied-label="Copié !"
+&gt;
+&lt;div class="hextra-copy-icon hx:group-[.copied]/copybtn:hidden hx:pointer-events-none hx:h-4 hx:w-4"&gt;&lt;/div&gt;
+&lt;div class="hextra-success-icon hx:hidden hx:group-[.copied]/copybtn:block hx:pointer-events-none hx:h-4 hx:w-4"&gt;&lt;/div&gt;
+&lt;/button&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;div class="hextra-code-block hx:relative hx:mt-6 hx:first:mt-0 hx:group/code"&gt;
+&lt;div&gt;&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-text" data-lang="text"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;[info] Sauvegarde du schéma app.ventes -&amp;gt; s3://cnpg-backups/logical/app/ventes/20261111T215554Z.dump
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;pg_dump : 20.0K
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;tables avec données : 2
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;[ ok ] Sauvegarde : s3://cnpg-backups/logical/app/ventes/20261111T215554Z.dump&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;&lt;div class="hextra-code-copy-btn-container hx:opacity-0 hx:transition hx:group-hover/code:opacity-100 hx:flex hx:gap-1 hx:absolute hx:m-[11px] hx:right-0 hx:top-0"&gt;
+&lt;button
+class="hextra-code-copy-btn hx:group/copybtn hx:cursor-pointer hx:transition-all hx:active:opacity-50 hx:bg-primary-700/5 hx:border hx:border-black/5 hx:text-gray-600 hx:hover:text-gray-900 hx:rounded-md hx:p-1.5 hx:dark:bg-primary-300/10 hx:dark:border-white/10 hx:dark:text-gray-400 hx:dark:hover:text-gray-50"
+title="Copier le code"
+aria-label="Copier le code"
+data-copied-label="Copié !"
+&gt;
+&lt;div class="hextra-copy-icon hx:group-[.copied]/copybtn:hidden hx:pointer-events-none hx:h-4 hx:w-4"&gt;&lt;/div&gt;
+&lt;div class="hextra-success-icon hx:hidden hx:group-[.copied]/copybtn:block hx:pointer-events-none hx:h-4 hx:w-4"&gt;&lt;/div&gt;
+&lt;/button&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;h3 data-hextra-search-id="déroulement"&gt;Déroulement&lt;span class="hx:absolute hx:-mt-20" id="déroulement"&gt;&lt;/span&gt;
+&lt;a href="#d%c3%a9roulement" class="subheading-anchor" aria-label="Lien permanent vers cette section"&gt;&lt;/a&gt;&lt;/h3&gt;&lt;p&gt;Chaque sauvegarde est un &lt;strong&gt;Job Kubernetes éphémère&lt;/strong&gt; dans le namespace
+&lt;code&gt;databases&lt;/code&gt;. Il ne s&amp;rsquo;exécute pas sur le poste local, donc rien ne transite par
+la machine hôte.&lt;/p&gt;
+&lt;div role="img" aria-label="Diagramme"&gt;
+&lt;pre class="mermaid hx:mt-6"&gt;
+sequenceDiagram
+autonumber
+actor Op as Opérateur
+participant Mk as make pg-backup
+participant Job as Job pg-backup-app-ventes
+participant Dump as initContainer pg-dump&amp;lt;br/&amp;gt;(postgres:17-alpine)
+participant Vol as emptyDir /work
+participant Up as conteneur upload&amp;lt;br/&amp;gt;(amazon/aws-cli)
+participant PG as pg-main-rw
+participant S3 as Garage S3
+Op-&amp;gt;&amp;gt;Mk: DB=app SCHEMA=ventes
+Mk-&amp;gt;&amp;gt;Job: kubectl apply (secrets pg-main-superuser, s3-cnpg)
+Job-&amp;gt;&amp;gt;Dump: démarrage
+Dump-&amp;gt;&amp;gt;PG: le schéma existe ? (pg_namespace)
+Dump-&amp;gt;&amp;gt;PG: pg_dump --schema=ventes --format=custom (TLS)
+PG--&amp;gt;&amp;gt;Dump: snapshot cohérent du schéma
+Dump-&amp;gt;&amp;gt;Vol: /work/dump (compressé)
+Job-&amp;gt;&amp;gt;Up: démarrage (après succès du dump)
+Up-&amp;gt;&amp;gt;S3: aws s3 cp → logical/app/ventes/&amp;lt;horodatage&amp;gt;.dump
+S3--&amp;gt;&amp;gt;Up: 200 OK
+Up--&amp;gt;&amp;gt;Mk: logs (taille, clé S3)
+Mk-&amp;gt;&amp;gt;Job: suppression du Job
+Mk--&amp;gt;&amp;gt;Op: [ ok ] Sauvegarde : s3://…
+&lt;/pre&gt;
+&lt;/div&gt;&lt;p&gt;Points clés :&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;Cohérence&lt;/strong&gt; : &lt;code&gt;pg_dump&lt;/code&gt; travaille dans une transaction &lt;code&gt;REPEATABLE READ&lt;/code&gt;. Le
+dump est cohérent même si l&amp;rsquo;application écrit en même temps, sans bloquer les
+lectures ni les écritures. Il prend seulement des verrous &lt;code&gt;ACCESS SHARE&lt;/code&gt;, qui
+bloquent les &lt;code&gt;DROP&lt;/code&gt; et &lt;code&gt;ALTER&lt;/code&gt; concurrents.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Contenu&lt;/strong&gt; : tables, données, index, contraintes (clés étrangères incluses),
+vues, séquences, fonctions du schéma, &lt;strong&gt;propriétaires et droits&lt;/strong&gt;.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Pas de transfert inutile&lt;/strong&gt; : l&amp;rsquo;upload ne démarre que si le dump a réussi
+(initContainer). Un dump en échec ne laisse donc aucun fichier partiel dans S3.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h3 data-hextra-search-id="lister-les-sauvegardes"&gt;Lister les sauvegardes&lt;span class="hx:absolute hx:-mt-20" id="lister-les-sauvegardes"&gt;&lt;/span&gt;
+&lt;a href="#lister-les-sauvegardes" class="subheading-anchor" aria-label="Lien permanent vers cette section"&gt;&lt;/a&gt;&lt;/h3&gt;&lt;div class="hextra-code-block hx:relative hx:mt-6 hx:first:mt-0 hx:group/code"&gt;
+&lt;div&gt;&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;make pg-backups &lt;span class="nv"&gt;DB&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;app &lt;span class="c1"&gt;# tous les schémas de la base app&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;make pg-backups &lt;span class="nv"&gt;DB&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;app &lt;span class="nv"&gt;SCHEMA&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;ventes&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;&lt;div class="hextra-code-copy-btn-container hx:opacity-0 hx:transition hx:group-hover/code:opacity-100 hx:flex hx:gap-1 hx:absolute hx:m-[11px] hx:right-0 hx:top-0"&gt;
+&lt;button
+class="hextra-code-copy-btn hx:group/copybtn hx:cursor-pointer hx:transition-all hx:active:opacity-50 hx:bg-primary-700/5 hx:border hx:border-black/5 hx:text-gray-600 hx:hover:text-gray-900 hx:rounded-md hx:p-1.5 hx:dark:bg-primary-300/10 hx:dark:border-white/10 hx:dark:text-gray-400 hx:dark:hover:text-gray-50"
+title="Copier le code"
+aria-label="Copier le code"
+data-copied-label="Copié !"
+&gt;
+&lt;div class="hextra-copy-icon hx:group-[.copied]/copybtn:hidden hx:pointer-events-none hx:h-4 hx:w-4"&gt;&lt;/div&gt;
+&lt;div class="hextra-success-icon hx:hidden hx:group-[.copied]/copybtn:block hx:pointer-events-none hx:h-4 hx:w-4"&gt;&lt;/div&gt;
+&lt;/button&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;div class="hextra-code-block hx:relative hx:mt-6 hx:first:mt-0 hx:group/code"&gt;
+&lt;div&gt;&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-text" data-lang="text"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;2026-11-11 21:56:03 19521 logical/app/ventes/20261111T215554Z.dump
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;2026-11-11 22:00:07 19521 logical/app/ventes/20261111T220005Z.dump&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;&lt;div class="hextra-code-copy-btn-container hx:opacity-0 hx:transition hx:group-hover/code:opacity-100 hx:flex hx:gap-1 hx:absolute hx:m-[11px] hx:right-0 hx:top-0"&gt;
+&lt;button
+class="hextra-code-copy-btn hx:group/copybtn hx:cursor-pointer hx:transition-all hx:active:opacity-50 hx:bg-primary-700/5 hx:border hx:border-black/5 hx:text-gray-600 hx:hover:text-gray-900 hx:rounded-md hx:p-1.5 hx:dark:bg-primary-300/10 hx:dark:border-white/10 hx:dark:text-gray-400 hx:dark:hover:text-gray-50"
+title="Copier le code"
+aria-label="Copier le code"
+data-copied-label="Copié !"
+&gt;
+&lt;div class="hextra-copy-icon hx:group-[.copied]/copybtn:hidden hx:pointer-events-none hx:h-4 hx:w-4"&gt;&lt;/div&gt;
+&lt;div class="hextra-success-icon hx:hidden hx:group-[.copied]/copybtn:block hx:pointer-events-none hx:h-4 hx:w-4"&gt;&lt;/div&gt;
+&lt;/button&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;p&gt;Organisation dans le bucket :&lt;/p&gt;
+&lt;div class="hextra-code-block hx:relative hx:mt-6 hx:first:mt-0 hx:group/code"&gt;
+&lt;div&gt;&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-text" data-lang="text"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;s3://cnpg-backups/
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;├── pg-main/ ← barman (physique) : NE PAS modifier à la main
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;│ ├── base/&amp;lt;backup-id&amp;gt;/…
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;│ └── wals/…
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;└── logical/ ← ce guide (pg_dump)
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; └── app/ ← base
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; └── ventes/ ← schéma
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; ├── 20261111T215554Z.dump
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt; └── 20261111T220005Z.dump&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;&lt;div class="hextra-code-copy-btn-container hx:opacity-0 hx:transition hx:group-hover/code:opacity-100 hx:flex hx:gap-1 hx:absolute hx:m-[11px] hx:right-0 hx:top-0"&gt;
+&lt;button
+class="hextra-code-copy-btn hx:group/copybtn hx:cursor-pointer hx:transition-all hx:active:opacity-50 hx:bg-primary-700/5 hx:border hx:border-black/5 hx:text-gray-600 hx:hover:text-gray-900 hx:rounded-md hx:p-1.5 hx:dark:bg-primary-300/10 hx:dark:border-white/10 hx:dark:text-gray-400 hx:dark:hover:text-gray-50"
+title="Copier le code"
+aria-label="Copier le code"
+data-copied-label="Copié !"
+&gt;
+&lt;div class="hextra-copy-icon hx:group-[.copied]/copybtn:hidden hx:pointer-events-none hx:h-4 hx:w-4"&gt;&lt;/div&gt;
+&lt;div class="hextra-success-icon hx:hidden hx:group-[.copied]/copybtn:block hx:pointer-events-none hx:h-4 hx:w-4"&gt;&lt;/div&gt;
+&lt;/button&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;h2 data-hextra-search-id="restauration-logique-dun-schéma-s3--postgresql"&gt;Restauration logique d&amp;rsquo;un schéma (S3 → PostgreSQL)&lt;span class="hx:absolute hx:-mt-20" id="restauration-logique-dun-schéma-s3--postgresql"&gt;&lt;/span&gt;
+&lt;a href="#restauration-logique-dun-sch%c3%a9ma-s3--postgresql" class="subheading-anchor" aria-label="Lien permanent vers cette section"&gt;&lt;/a&gt;&lt;/h2&gt;&lt;div class="hextra-code-block hx:relative hx:mt-6 hx:first:mt-0 hx:group/code"&gt;
+&lt;div&gt;&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-bash" data-lang="bash"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;make pg-restore &lt;span class="nv"&gt;DB&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;app &lt;span class="nv"&gt;SCHEMA&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;ventes &lt;span class="c1"&gt;# dernière sauvegarde&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;make pg-restore &lt;span class="nv"&gt;DB&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;app &lt;span class="nv"&gt;SCHEMA&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;ventes &lt;span class="nv"&gt;FILE&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;20261111T215554Z.dump &lt;span class="c1"&gt;# sauvegarde précise&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;make pg-restore &lt;span class="nv"&gt;DB&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;app &lt;span class="nv"&gt;SCHEMA&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;ventes &lt;span class="nv"&gt;TARGET&lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;app_verif &lt;span class="c1"&gt;# dans une autre base (créée si besoin)&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;&lt;div class="hextra-code-copy-btn-container hx:opacity-0 hx:transition hx:group-hover/code:opacity-100 hx:flex hx:gap-1 hx:absolute hx:m-[11px] hx:right-0 hx:top-0"&gt;
+&lt;button
+class="hextra-code-copy-btn hx:group/copybtn hx:cursor-pointer hx:transition-all hx:active:opacity-50 hx:bg-primary-700/5 hx:border hx:border-black/5 hx:text-gray-600 hx:hover:text-gray-900 hx:rounded-md hx:p-1.5 hx:dark:bg-primary-300/10 hx:dark:border-white/10 hx:dark:text-gray-400 hx:dark:hover:text-gray-50"
+title="Copier le code"
+aria-label="Copier le code"
+data-copied-label="Copié !"
+&gt;
+&lt;div class="hextra-copy-icon hx:group-[.copied]/copybtn:hidden hx:pointer-events-none hx:h-4 hx:w-4"&gt;&lt;/div&gt;
+&lt;div class="hextra-success-icon hx:hidden hx:group-[.copied]/copybtn:block hx:pointer-events-none hx:h-4 hx:w-4"&gt;&lt;/div&gt;
+&lt;/button&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;div
+data-alert="warning" class="hextra-alert"
+&gt;
+&lt;p class="hextra-alert-title"&gt;&lt;svg height=16px class="hextra-alert-icon" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" aria-hidden="true"&gt;&lt;path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/&gt;&lt;/svg&gt;&lt;span class="hextra-alert-title-text"&gt;Warning&lt;/span&gt;
+&lt;/p&gt;
+&lt;div class="hextra-alert-content"&gt;&lt;p&gt;La restauration &lt;strong&gt;remplace entièrement&lt;/strong&gt; le schéma dans la base cible
+(&lt;code&gt;DROP SCHEMA … CASCADE&lt;/code&gt;, puis recréation). Tout ce qui a été écrit dans ce
+schéma depuis la sauvegarde est perdu. Les objets &lt;strong&gt;d&amp;rsquo;autres schémas&lt;/strong&gt; qui en
+dépendent (vues, clés étrangères) sont aussi supprimés par le &lt;code&gt;CASCADE&lt;/code&gt;. En cas
+de doute, restaurer d&amp;rsquo;abord dans une autre base avec &lt;code&gt;TARGET=…&lt;/code&gt; et comparer.&lt;/p&gt;&lt;/div&gt;
+&lt;/div&gt;
+&lt;h3 data-hextra-search-id="déroulement-1"&gt;Déroulement&lt;span class="hx:absolute hx:-mt-20" id="déroulement-1"&gt;&lt;/span&gt;
+&lt;a href="#d%c3%a9roulement-1" class="subheading-anchor" aria-label="Lien permanent vers cette section"&gt;&lt;/a&gt;&lt;/h3&gt;&lt;div role="img" aria-label="Diagramme"&gt;
+&lt;pre class="mermaid hx:mt-6"&gt;
+sequenceDiagram
+autonumber
+actor Op as Opérateur
+participant Mk as make pg-restore
+participant Job as Job pg-restore-app-ventes
+participant Dl as initContainer download&amp;lt;br/&amp;gt;(amazon/aws-cli)
+participant Vol as emptyDir /work
+participant Rs as conteneur pg-restore&amp;lt;br/&amp;gt;(postgres:17-alpine)
+participant S3 as Garage S3
+participant PG as pg-main-rw
+Op-&amp;gt;&amp;gt;Mk: DB=app SCHEMA=ventes FILE=latest
+Mk-&amp;gt;&amp;gt;S3: liste logical/app/ventes/ → plus récent
+Mk-&amp;gt;&amp;gt;Job: kubectl apply
+Job-&amp;gt;&amp;gt;Dl: démarrage
+Dl-&amp;gt;&amp;gt;S3: aws s3 cp &amp;lt;clé&amp;gt; /work/dump
+S3--&amp;gt;&amp;gt;Dl: dump
+Dl-&amp;gt;&amp;gt;Vol: /work/dump
+Job-&amp;gt;&amp;gt;Rs: démarrage (après succès du téléchargement)
+Rs-&amp;gt;&amp;gt;PG: base cible absente ? → CREATE DATABASE
+rect rgb(230, 240, 255)
+Note over Rs,PG: UNE SEULE TRANSACTION (psql --single-transaction, ON_ERROR_STOP)
+Rs-&amp;gt;&amp;gt;PG: BEGIN
+Rs-&amp;gt;&amp;gt;PG: DROP SCHEMA IF EXISTS ventes CASCADE
+Rs-&amp;gt;&amp;gt;PG: CREATE SCHEMA, tables, données (COPY), index, FK, vues, droits
+alt tout s&amp;#39;est bien passé
+Rs-&amp;gt;&amp;gt;PG: COMMIT → nouveau schéma visible d&amp;#39;un coup
+else une erreur
+Rs-&amp;gt;&amp;gt;PG: ROLLBACK → l&amp;#39;ancien schéma est intact
+end
+end
+Rs--&amp;gt;&amp;gt;Mk: « tables restaurées : N »
+Mk--&amp;gt;&amp;gt;Op: [ ok ] Restauration terminée
+&lt;/pre&gt;
+&lt;/div&gt;&lt;p&gt;Pourquoi cet enchaînement :&lt;/p&gt;
+&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;Téléchargement d&amp;rsquo;abord&lt;/strong&gt; : si le fichier S3 est absent ou illisible, le Job
+échoue &lt;strong&gt;avant&lt;/strong&gt; de toucher à la base.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Tout ou rien&lt;/strong&gt; : la suppression et la recréation sont dans la même
+transaction. Les applications voient l&amp;rsquo;ancien schéma jusqu&amp;rsquo;au &lt;code&gt;COMMIT&lt;/code&gt;, puis le
+nouveau. Il n&amp;rsquo;y a jamais d&amp;rsquo;état intermédiaire et pas de schéma à moitié
+restauré.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Propriétaires conservés&lt;/strong&gt; : les rôles (&lt;code&gt;app&lt;/code&gt;, …) existent dans le même
+cluster, donc les objets retrouvent leur propriétaire d&amp;rsquo;origine.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h2 data-hextra-search-id="vérifications-tests-du-2026-11-11"&gt;Vérifications (tests du 2026-11-11)&lt;span class="hx:absolute hx:-mt-20" id="vérifications-tests-du-2026-11-11"&gt;&lt;/span&gt;
+&lt;a href="#v%c3%a9rifications-tests-du-2026-11-11" class="subheading-anchor" aria-label="Lien permanent vers cette section"&gt;&lt;/a&gt;&lt;/h2&gt;&lt;p&gt;Schéma de test &lt;code&gt;app.ventes&lt;/code&gt; : 50 produits, 5 000 factures, une vue
+&lt;code&gt;ca_par_produit&lt;/code&gt;, une clé étrangère, propriétaire &lt;code&gt;app&lt;/code&gt;.&lt;/p&gt;
+&lt;table&gt;
+&lt;thead&gt;
+&lt;tr&gt;
+&lt;th&gt;Test&lt;/th&gt;
+&lt;th&gt;Action&lt;/th&gt;
+&lt;th&gt;Résultat&lt;/th&gt;
+&lt;/tr&gt;
+&lt;/thead&gt;
+&lt;tbody&gt;
+&lt;tr&gt;
+&lt;td&gt;1. Sauvegarde&lt;/td&gt;
+&lt;td&gt;&lt;code&gt;make pg-backup DB=app SCHEMA=ventes&lt;/code&gt;&lt;/td&gt;
+&lt;td&gt;dump de 19,5 Ko dans Garage, 2 tables avec données, ~14 s ✅&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td&gt;2. Incident puis restauration&lt;/td&gt;
+&lt;td&gt;&lt;code&gt;DROP TABLE ventes.factures&lt;/code&gt; + suppression de 40 produits, puis &lt;code&gt;make pg-restore DB=app SCHEMA=ventes&lt;/code&gt;&lt;/td&gt;
+&lt;td&gt;50 produits, 5 000 factures, vue, FK et propriétaire &lt;code&gt;app&lt;/code&gt; restaurés, CA identique au centime (974 452,87) ✅&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td&gt;3. Restauration vers une autre base&lt;/td&gt;
+&lt;td&gt;&lt;code&gt;… TARGET=app_verif&lt;/code&gt;&lt;/td&gt;
+&lt;td&gt;base créée, 5 000 factures, même CA ; production intacte ✅&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td&gt;4. Atomicité&lt;/td&gt;
+&lt;td&gt;erreur injectée après le &lt;code&gt;DROP&lt;/code&gt; et la recréation (&lt;code&gt;SELECT 1/0&lt;/code&gt;)&lt;/td&gt;
+&lt;td&gt;psql sort en code 3, &lt;strong&gt;ROLLBACK&lt;/strong&gt; : le schéma d&amp;rsquo;origine reste intact (5 000 factures) ✅&lt;/td&gt;
+&lt;/tr&gt;
+&lt;/tbody&gt;
+&lt;/table&gt;
+&lt;p&gt;Contrôles utiles après une restauration :&lt;/p&gt;
+&lt;div class="hextra-code-block hx:relative hx:mt-6 hx:first:mt-0 hx:group/code"&gt;
+&lt;div&gt;&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-sql" data-lang="sql"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="c1"&gt;-- nombre de lignes par table du schéma
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;SELECT&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="n"&gt;relname&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="n"&gt;n_live_tup&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="k"&gt;FROM&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="n"&gt;pg_stat_user_tables&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="k"&gt;WHERE&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="n"&gt;schemaname&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="s1"&gt;&amp;#39;ventes&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="c1"&gt;-- propriétaires
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;SELECT&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="n"&gt;tablename&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="n"&gt;tableowner&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="k"&gt;FROM&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="n"&gt;pg_tables&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="k"&gt;WHERE&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="n"&gt;schemaname&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="s1"&gt;&amp;#39;ventes&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="c1"&gt;-- contraintes
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="k"&gt;SELECT&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="n"&gt;conname&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="n"&gt;contype&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="k"&gt;FROM&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="n"&gt;pg_constraint&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="k"&gt;WHERE&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="n"&gt;connamespace&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="o"&gt;=&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="s1"&gt;&amp;#39;ventes&amp;#39;&lt;/span&gt;&lt;span class="p"&gt;::&lt;/span&gt;&lt;span class="n"&gt;regnamespace&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;&lt;div class="hextra-code-copy-btn-container hx:opacity-0 hx:transition hx:group-hover/code:opacity-100 hx:flex hx:gap-1 hx:absolute hx:m-[11px] hx:right-0 hx:top-0"&gt;
+&lt;button
+class="hextra-code-copy-btn hx:group/copybtn hx:cursor-pointer hx:transition-all hx:active:opacity-50 hx:bg-primary-700/5 hx:border hx:border-black/5 hx:text-gray-600 hx:hover:text-gray-900 hx:rounded-md hx:p-1.5 hx:dark:bg-primary-300/10 hx:dark:border-white/10 hx:dark:text-gray-400 hx:dark:hover:text-gray-50"
+title="Copier le code"
+aria-label="Copier le code"
+data-copied-label="Copié !"
+&gt;
+&lt;div class="hextra-copy-icon hx:group-[.copied]/copybtn:hidden hx:pointer-events-none hx:h-4 hx:w-4"&gt;&lt;/div&gt;
+&lt;div class="hextra-success-icon hx:hidden hx:group-[.copied]/copybtn:block hx:pointer-events-none hx:h-4 hx:w-4"&gt;&lt;/div&gt;
+&lt;/button&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;h2 data-hextra-search-id="restauration-physique-instance-complète-pitr"&gt;Restauration physique (instance complète, PITR)&lt;span class="hx:absolute hx:-mt-20" id="restauration-physique-instance-complète-pitr"&gt;&lt;/span&gt;
+&lt;a href="#restauration-physique-instance-compl%c3%a8te-pitr" class="subheading-anchor" aria-label="Lien permanent vers cette section"&gt;&lt;/a&gt;&lt;/h2&gt;&lt;p&gt;Quand c&amp;rsquo;est &lt;strong&gt;toute l&amp;rsquo;instance&lt;/strong&gt; qu&amp;rsquo;il faut récupérer (cluster perdu,
+&lt;code&gt;make recreate&lt;/code&gt;, retour à un instant précis), on utilise les sauvegardes
+physiques barman. La procédure détaillée et testée est dans
+&lt;a href="https://laurentpoirierfr.github.io/dagobah-data-lab/docs/installation/10-sauvegardes-postgresql/#restauration-test%c3%a9e-le-2026-11-11"&gt;l&amp;rsquo;étape 10&lt;/a&gt;.&lt;/p&gt;
+&lt;div role="img" aria-label="Diagramme"&gt;
+&lt;pre class="mermaid hx:mt-6"&gt;
+flowchart LR
+S3[(s3://cnpg-backups/pg-main&amp;lt;br/&amp;gt;base/ + wals/)] --&amp;gt; R[Nouveau Cluster CNPG&amp;lt;br/&amp;gt;bootstrap.recovery&amp;lt;br/&amp;gt;source: origin]
+R --&amp;gt; B1[1. Télécharge la sauvegarde de base&amp;lt;br/&amp;gt;la plus récente avant la cible]
+B1 --&amp;gt; B2[2. Rejoue les WAL jusqu&amp;#39;à&amp;lt;br/&amp;gt;la fin, ou jusqu&amp;#39;à targetTime]
+B2 --&amp;gt; B3[3. Promotion : nouvelle timeline]
+B3 --&amp;gt; APPS[Bascule des applications&amp;lt;br/&amp;gt;vers le nouveau service -rw]
+&lt;/pre&gt;
+&lt;/div&gt;&lt;div class="hextra-code-block hx:relative hx:mt-6 hx:first:mt-0 hx:group/code"&gt;
+&lt;div&gt;&lt;div class="highlight"&gt;&lt;pre tabindex="0" class="chroma"&gt;&lt;code class="language-yaml" data-lang="yaml"&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nt"&gt;bootstrap&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="nt"&gt;recovery&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="nt"&gt;source&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;origin&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="nt"&gt;recoveryTarget&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="nt"&gt;targetTime&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="s2"&gt;&amp;#34;2026-11-11 21:50:00+00&amp;#34;&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="c"&gt;# optionnel : sinon, jusqu&amp;#39;au dernier WAL archivé&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="nt"&gt;externalClusters&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt; &lt;/span&gt;- &lt;span class="nt"&gt;name&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;origin&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="nt"&gt;plugin&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="nt"&gt;name&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;barman-cloud.cloudnative-pg.io&lt;/span&gt;&lt;span class="w"&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;span class="line"&gt;&lt;span class="cl"&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="nt"&gt;parameters&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;{&lt;span class="nt"&gt;barmanObjectName&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="nt"&gt;pg-main-backups, serverName&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="w"&gt; &lt;/span&gt;&lt;span class="l"&gt;pg-main}&lt;/span&gt;&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;/div&gt;&lt;div class="hextra-code-copy-btn-container hx:opacity-0 hx:transition hx:group-hover/code:opacity-100 hx:flex hx:gap-1 hx:absolute hx:m-[11px] hx:right-0 hx:top-0"&gt;
+&lt;button
+class="hextra-code-copy-btn hx:group/copybtn hx:cursor-pointer hx:transition-all hx:active:opacity-50 hx:bg-primary-700/5 hx:border hx:border-black/5 hx:text-gray-600 hx:hover:text-gray-900 hx:rounded-md hx:p-1.5 hx:dark:bg-primary-300/10 hx:dark:border-white/10 hx:dark:text-gray-400 hx:dark:hover:text-gray-50"
+title="Copier le code"
+aria-label="Copier le code"
+data-copied-label="Copié !"
+&gt;
+&lt;div class="hextra-copy-icon hx:group-[.copied]/copybtn:hidden hx:pointer-events-none hx:h-4 hx:w-4"&gt;&lt;/div&gt;
+&lt;div class="hextra-success-icon hx:hidden hx:group-[.copied]/copybtn:block hx:pointer-events-none hx:h-4 hx:w-4"&gt;&lt;/div&gt;
+&lt;/button&gt;
+&lt;/div&gt;
+&lt;/div&gt;
+&lt;p&gt;On peut aussi &lt;strong&gt;combiner&lt;/strong&gt; les deux méthodes. Par exemple, restaurer l&amp;rsquo;instance à
+un instant donné dans un cluster temporaire, en extraire un seul schéma avec
+&lt;code&gt;pg_dump -n&lt;/code&gt;, puis le restaurer dans &lt;code&gt;pg-main&lt;/code&gt; avec ce guide.&lt;/p&gt;
+&lt;h2 data-hextra-search-id="pièges-et-limites"&gt;Pièges et limites&lt;span class="hx:absolute hx:-mt-20" id="pièges-et-limites"&gt;&lt;/span&gt;
+&lt;a href="#pi%c3%a8ges-et-limites" class="subheading-anchor" aria-label="Lien permanent vers cette section"&gt;&lt;/a&gt;&lt;/h2&gt;&lt;ul&gt;
+&lt;li&gt;&lt;strong&gt;Même version majeure&lt;/strong&gt; : le dump est fait avec &lt;code&gt;pg_dump&lt;/code&gt; 17
+(&lt;code&gt;postgres:17-alpine&lt;/code&gt;), comme pg-main. Un &lt;code&gt;pg_dump&lt;/code&gt; plus ancien que le serveur
+refuse de fonctionner. Pour restaurer vers une version plus récente, c&amp;rsquo;est
+possible.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Ce que &lt;code&gt;-n schéma&lt;/code&gt; n&amp;rsquo;emporte pas&lt;/strong&gt; : les &lt;strong&gt;rôles&lt;/strong&gt; (globaux au cluster), les
+&lt;strong&gt;extensions&lt;/strong&gt; créées dans un autre schéma, les &lt;em&gt;large objects&lt;/em&gt;, les objets
+d&amp;rsquo;autres schémas qui référencent celui-ci. Pour une base entière, utiliser
+plutôt &lt;code&gt;pg_dump&lt;/code&gt; sans &lt;code&gt;-n&lt;/code&gt;, ou la méthode physique.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Dépendances inter-schémas&lt;/strong&gt; : le &lt;code&gt;DROP SCHEMA … CASCADE&lt;/code&gt; supprime aussi les
+vues et les clés étrangères des &lt;strong&gt;autres&lt;/strong&gt; schémas qui pointent vers le schéma
+restauré, et ces objets ne sont pas recréés. Vérifier avant avec :
+&lt;code&gt;SELECT * FROM pg_depend&lt;/code&gt; ou en restaurant d&amp;rsquo;abord dans une base de test.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;CDC vers RisingWave&lt;/strong&gt; (&lt;a href="https://laurentpoirierfr.github.io/dagobah-data-lab/docs/installation/13-cdc-pg-main-risingwave/"&gt;étape 13&lt;/a&gt;) :
+la réplication logique ne transmet &lt;strong&gt;pas&lt;/strong&gt; les DDL. Si un schéma contenant des
+tables répliquées est restauré, le &lt;code&gt;DROP&lt;/code&gt; n&amp;rsquo;est pas propagé, et les données
+rechargées arrivent comme des &lt;code&gt;INSERT&lt;/code&gt;. Il faut alors recréer les tables CDC
+côté RisingWave. Le schéma &lt;code&gt;ventes&lt;/code&gt; de démonstration n&amp;rsquo;est pas répliqué.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Restauration sur le primaire&lt;/strong&gt; : le Job vise &lt;code&gt;pg-main-rw&lt;/code&gt;. Les réplicas
+reçoivent la restauration par la réplication physique, sans action.&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Rétention&lt;/strong&gt; : les dumps logiques &lt;strong&gt;ne sont pas purgés automatiquement&lt;/strong&gt;,
+contrairement aux sauvegardes barman (14 jours). Les supprimer avec
+garage-webui (&lt;a href="https://garage.k8s.test" target="_blank" rel="noopener"&gt;https://garage.k8s.test&lt;/a&gt;, bucket &lt;code&gt;cnpg-backups&lt;/code&gt;, dossier &lt;code&gt;logical/&lt;/code&gt;).&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Volumétrie&lt;/strong&gt; : le dump transite par un volume &lt;code&gt;emptyDir&lt;/code&gt; du pod, donc sur le
+disque du nœud. Pour un très gros schéma, prévoir l&amp;rsquo;espace, ou passer en
+streaming (&lt;code&gt;pg_dump | aws s3 cp - s3://…&lt;/code&gt;).&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;Test à ne pas reproduire&lt;/strong&gt; : enchaîner &lt;code&gt;DROP SCHEMA&lt;/code&gt; et &lt;code&gt;pg_dump&lt;/code&gt; du même
+schéma dans &lt;strong&gt;une même&lt;/strong&gt; transaction crée un interblocage. &lt;code&gt;pg_dump&lt;/code&gt; attend le
+verrou que tient la transaction. Le script évite ce piège : le fichier est
+téléchargé &lt;strong&gt;avant&lt;/strong&gt; l&amp;rsquo;ouverture de la transaction.&lt;/li&gt;
+&lt;/ul&gt;
+&lt;h2 data-hextra-search-id="référence"&gt;Référence&lt;span class="hx:absolute hx:-mt-20" id="référence"&gt;&lt;/span&gt;
+&lt;a href="#r%c3%a9f%c3%a9rence" class="subheading-anchor" aria-label="Lien permanent vers cette section"&gt;&lt;/a&gt;&lt;/h2&gt;&lt;table&gt;
+&lt;thead&gt;
+&lt;tr&gt;
+&lt;th&gt;Élément&lt;/th&gt;
+&lt;th&gt;Valeur&lt;/th&gt;
+&lt;/tr&gt;
+&lt;/thead&gt;
+&lt;tbody&gt;
+&lt;tr&gt;
+&lt;td&gt;Script&lt;/td&gt;
+&lt;td&gt;&lt;code&gt;deploy/k8s/scripts/pg-schema-backup.sh&lt;/code&gt; (&lt;code&gt;backup&lt;/code&gt;, &lt;code&gt;list&lt;/code&gt;, &lt;code&gt;restore&lt;/code&gt;)&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td&gt;Cibles make&lt;/td&gt;
+&lt;td&gt;&lt;code&gt;pg-backup&lt;/code&gt;, &lt;code&gt;pg-backups&lt;/code&gt;, &lt;code&gt;pg-restore&lt;/code&gt; (variables &lt;code&gt;DB&lt;/code&gt;, &lt;code&gt;SCHEMA&lt;/code&gt;, &lt;code&gt;FILE&lt;/code&gt;, &lt;code&gt;TARGET&lt;/code&gt;)&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td&gt;Images&lt;/td&gt;
+&lt;td&gt;&lt;code&gt;postgres:17-alpine&lt;/code&gt;, &lt;code&gt;amazon/aws-cli:2.40.1&lt;/code&gt;&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td&gt;Secrets&lt;/td&gt;
+&lt;td&gt;&lt;code&gt;databases/pg-main-superuser&lt;/code&gt; (PostgreSQL), &lt;code&gt;databases/s3-cnpg&lt;/code&gt; (S3)&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td&gt;S3&lt;/td&gt;
+&lt;td&gt;&lt;code&gt;http://garage.garage.svc:3900&lt;/code&gt;, région &lt;code&gt;garage&lt;/code&gt;, &lt;code&gt;AWS_REQUEST_CHECKSUM_CALCULATION=when_required&lt;/code&gt; (sinon Garage répond &lt;code&gt;Invalid payload signature&lt;/code&gt;)&lt;/td&gt;
+&lt;/tr&gt;
+&lt;/tbody&gt;
+&lt;/table&gt;
+&lt;p&gt;Pistes : planifier les sauvegardes logiques avec un &lt;code&gt;CronJob&lt;/code&gt;, et purger
+automatiquement les anciens dumps (règle de cycle de vie S3 ou script).&lt;/p&gt;</description></item></channel></rss>

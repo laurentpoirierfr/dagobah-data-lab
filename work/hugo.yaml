@@ -1,8 +1,13 @@
 # Documentation du Dagobah Data Lab — site Hugo (thème Hextra).
 #
-#   make docs         -> génère le site statique dans ../docs
-#   make docs-serve   -> serveur de prévisualisation http://localhost:1313
-baseURL: /
+#   make docs         -> génère le site statique dans ../docs (publié par GitHub Pages)
+#   make docs-view    -> sert docs/ comme GitHub Pages : http://localhost:8000/dagobah-data-lab/
+#   make docs-serve   -> prévisualisation avec rechargement : http://localhost:1313/dagobah-data-lab/
+#
+# Publication : GitHub Pages (branche main, dossier /docs), sous le sous-chemin
+# /dagobah-data-lab/. Les chemins générés sont absolus (/dagobah-data-lab/…) :
+# le site doit être servi par HTTP (pas d'ouverture directe en file://).
+baseURL: https://laurentpoirierfr.github.io/dagobah-data-lab/
 title: Dagobah Data Lab
 locale: fr-fr
 defaultContentLanguage: fr
@@ -11,11 +16,6 @@ enableRobotsTXT: false
 # Site généré dans ./docs à la racine du projet.
 publishDir: ../docs
 cleanDestinationDir: true
-
-# Consultable aussi SANS serveur (ouverture de docs/index.html en file://) :
-# chemins relatifs pour CSS, JS et liens. Après génération, scripts/file-links.py
-# ajoute « index.html » aux liens internes vers un dossier (make docs).
-relativeURLs: true
 
 module:
   imports:

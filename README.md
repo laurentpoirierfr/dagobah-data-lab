@@ -13,9 +13,13 @@ recherche (Quickwit) et supervision (Prometheus, Grafana), sur un cluster miniku
  Prometheus + Grafana : métriques de tous les composants
 ```
 
-> Documentation (Hugo, thème Hextra) : source dans [`work/`](work/), site généré dans
-> [`docs/`](docs/) — `make docs-serve` puis http://localhost:1313. Journal d'installation :
-> [`work/content/docs/installation/`](work/content/docs/installation/_index.md).
+> 📖 **Documentation en ligne : https://laurentpoirierfr.github.io/dagobah-data-lab/**
+>
+> Site Hugo (thème Hextra) : sources dans [`work/`](work/), site généré dans [`docs/`](docs/)
+> et publié par GitHub Pages (branche `main`, dossier `/docs`). Après une modification :
+> `make docs` puis commit/push. En local : `make docs-view` → http://localhost:8000/dagobah-data-lab/
+> (ou `make docs-serve` → http://localhost:1313/dagobah-data-lab/ avec rechargement à chaud).
+> Journal d'installation : [`work/content/docs/installation/`](work/content/docs/installation/_index.md).
 
 ## Infrastructure
 

@@ -271,13 +271,13 @@ qw-search: ## Recherche : make qw-search Q='message:"connection refused" AND lev
 
 DOCS_SRC ?= work
 
-docs: ## Génère la documentation statique dans docs/ (Hugo, thème Hextra), consultable aussi en file://
+docs: ## Génère la documentation dans docs/ (Hugo + Hextra), publiée par GitHub Pages
 	@cd $(DOCS_SRC) && hugo --gc --minify
-	@python3 $(DOCS_SRC)/scripts/file-links.py docs
 
-docs-view: docs ## Sert docs/ tel que généré (serveur statique) : http://localhost:8000
-	@echo "http://localhost:8000  (Ctrl+C pour arrêter)"
-	@python3 -m http.server 8000 --bind 127.0.0.1 --directory docs
+docs-view: docs ## Sert docs/ comme GitHub Pages (sous-chemin /dagobah-data-lab/) : http://localhost:8000/dagobah-data-lab/
+	@d=$$(mktemp -d) && ln -s "$(CURDIR)/docs" "$$d/dagobah-data-lab" && \
+	  echo "http://localhost:8000/dagobah-data-lab/  (Ctrl+C pour arrêter)" && \
+	  python3 -m http.server 8000 --bind 127.0.0.1 --directory "$$d"
 
 docs-serve: ## Prévisualisation avec rechargement à chaud : http://localhost:1313
 	@# --renderToMemory : ne rien écrire dans docs/ (sinon conflit avec « make docs »)

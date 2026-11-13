@@ -105,7 +105,7 @@ Garage (à condition que `data/volumes/garage/` ait été conservé).
 
 > [!TIP]
 > Mode opératoire complet, avec schémas, y compris la sauvegarde et la restauration
-> **par schéma** (logique) : [Guides — Sauvegarde et restauration PostgreSQL ⇄ S3](../../guides/sauvegarde-restauration-postgresql).
+> **par schéma** (logique) : [Guides — Sauvegarde et restauration PostgreSQL ⇄ S3](../guides/sauvegarde-restauration-postgresql.md).
 
 ## Pièges rencontrés
 
