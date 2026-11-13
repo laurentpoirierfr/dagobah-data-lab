@@ -1,0 +1,97 @@
+# Garage : stockage objet S3 (sauvegardes CloudNativePG + données du projet).
+#
+#   API S3   : https://s3.{{ .Values.domain }}  (path-style), région "garage"
+#   interne  : http://garage.garage.svc:3900
+#
+# Après installation : make s3-init (layout du cluster, buckets, clés).
+
+fullnameOverride: garage
+
+garage:
+  dbEngine: lmdb
+  # 3 nœuds Garage, chaque objet répliqué sur les 3.
+  replicationFactor: "3"
+  consistencyMode: consistent
+  compressionLevel: "1"
+  # Instantané des métadonnées LMDB toutes les 6 h (récupération après corruption).
+  metadataAutoSnapshotInterval: "6h"
+  # Secret RPC créé par le hook 'prepare' du helmfile (stable entre les upgrades).
+  existingRpcSecret: garage-rpc-secret
+  s3:
+    api:
+      region: garage
+      rootDomain: ".s3.{{ .Values.domain }}"
+    web:
+      rootDomain: ".web.{{ .Values.domain }}"
+
+persistence:
+  enabled: true
+  meta:
+    storageClass: {{ .Values.storageClass }}
+    size: 1Gi
+  data:
+    storageClass: {{ .Values.storageClass }}
+    size: 20Gi
+
+deployment:
+  kind: StatefulSet
+  replicaCount: 3
+  podManagementPolicy: Parallel
+
+# Un pod Garage par nœud Kubernetes.
+affinity:
+  podAntiAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      - topologyKey: kubernetes.io/hostname
+        labelSelector:
+          matchLabels:
+            app.kubernetes.io/name: garage
+
+# Jeton de l'API d'administration (port 3903), utilisé par garage-webui.
+environment:
+  - name: GARAGE_ADMIN_TOKEN
+    valueFrom:
+      secretKeyRef:
+        name: garage-admin-token
+        key: token
+
+service:
+  admin:
+    enabled: true
+
+# Supervision : /metrics sur l'API admin (3903), ServiceMonitor Prometheus.
+monitoring:
+  metrics:
+    enabled: true
+    serviceMonitor:
+      enabled: true
+      interval: 30s
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    memory: 512Mi
+
+ingress:
+  s3:
+    api:
+      enabled: true
+      className: {{ .Values.ingressClass }}
+      annotations:
+        cert-manager.io/cluster-issuer: {{ .Values.clusterIssuer }}
+        # Uploads volumineux (sauvegardes) : pas de limite de taille ni de buffering.
+        nginx.ingress.kubernetes.io/proxy-body-size: "0"
+        nginx.ingress.kubernetes.io/proxy-request-buffering: "off"
+        nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
+        nginx.ingress.kubernetes.io/proxy-send-timeout: "600"
+      hosts:
+        - host: s3.{{ .Values.domain }}
+          paths:
+            - path: /
+              pathType: Prefix
+      tls:
+        - secretName: s3-tls
+          hosts:
+            - s3.{{ .Values.domain }}

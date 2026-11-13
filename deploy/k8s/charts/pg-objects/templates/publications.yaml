@@ -1,0 +1,25 @@
+{{- range .Values.publications }}
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Publication
+metadata:
+  name: {{ $.Values.cluster }}-{{ .dbname }}-{{ .name | replace "_" "-" }}
+spec:
+  cluster:
+    name: {{ $.Values.cluster }}
+  dbname: {{ .dbname }}
+  name: {{ .name }}
+  publicationReclaimPolicy: {{ .reclaimPolicy | default "delete" }}
+  target:
+    {{- if .allTables }}
+    allTables: true
+    {{- else }}
+    objects:
+      {{- range .tables }}
+      {{- $parts := splitList "." . }}
+      - table:
+          schema: {{ index $parts 0 }}
+          name: {{ index $parts 1 }}
+      {{- end }}
+    {{- end }}
+{{- end }}

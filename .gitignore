@@ -1,0 +1,20 @@
+/data/
+# certs : seul le script est versionné (clés privées et certificats exportés exclus)
+certs/*
+!certs/cert.sh
+# identifiants S3 (garage-init.sh)
+.s3/
+# Hugo : fichiers générés pendant la construction (le site final est dans docs/)
+work/resources/_gen/
+work/.hugo_build.lock
+work/public/
+
+# Site Hugo généré (make docs) : seules les sources work/ sont versionnées
+/docs/
+
+# Fichiers personnels du poste
+claude.sh
+
+# Fichiers temporaires d'éditeur
+*.swp
+*~

@@ -1,0 +1,6 @@
+# Valeurs communes à toutes les releases pour le cluster minikube 'k8s'.
+kubeContext: k8s
+domain: k8s.test
+ingressClass: nginx
+clusterIssuer: dagobah-ca-issuer
+storageClass: local-data

@@ -1,0 +1,38 @@
+# RisingWave (base de données de streaming) — namespace risingwave.
+#   meta store  : PostgreSQL pg-main, base 'risingwave', rôle 'risingwave'
+#   state store : Garage S3, bucket 'risingwave' (Hummock), path-style
+#   SQL         : make rw-psql / make rw-forward   (frontend, port 4567)
+#   dashboard   : https://risingwave.{{ .Values.domain }}
+
+name: risingwave
+image: risingwavelabs/risingwave:v3.1.1
+
+metaStore:
+  host: pg-main-rw.databases.svc
+  database: risingwave
+  credentialsSecret: pg-risingwave
+
+stateStore:
+  endpoint: http://garage.garage.svc:3900
+  region: garage
+  bucket: risingwave
+  credentialsSecret: s3-risingwave
+
+# Supervision : ServiceMonitor créés par l'opérateur pour chaque composant.
+monitoring: true
+
+ingress:
+  enabled: true
+  className: {{ .Values.ingressClass }}
+  clusterIssuer: {{ .Values.clusterIssuer }}
+  host: risingwave.{{ .Values.domain }}
+
+# Limites CPU : RisingWave lit les cœurs depuis le cgroup du pod. Sans limite, chaque
+# composant voit les 16 cœurs de l'hôte (64 au total) et dépasse la licence gratuite
+# intégrée (4 cœurs max), ce qui désactive CREATE SECRET (SecretManagement).
+# Total des limites CPU <= 4.
+resources:
+  meta:      {requests: {cpu: 250m, memory: 512Mi}, limits: {cpu: 500m, memory: 1Gi}}
+  frontend:  {requests: {cpu: 250m, memory: 512Mi}, limits: {cpu: 500m, memory: 1Gi}}
+  compute:   {requests: {cpu: 500m, memory: 2Gi},   limits: {cpu: "2", memory: 4Gi}}
+  compactor: {requests: {cpu: 250m, memory: 512Mi}, limits: {cpu: "1", memory: 2Gi}}

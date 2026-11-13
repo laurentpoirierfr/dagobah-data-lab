@@ -1,0 +1,39 @@
+# Valeurs par défaut ; surchargées par deploy/k8s/values/risingwave.yaml.gotmpl
+name: risingwave
+image: risingwavelabs/risingwave:v3.1.1
+
+metaStore:
+  host: pg-main-rw.databases.svc
+  port: 5432
+  database: risingwave
+  credentialsSecret: pg-risingwave      # clés username / password
+
+stateStore:
+  endpoint: http://garage.garage.svc:3900
+  region: garage
+  bucket: risingwave
+  dataDirectory: hummock
+  credentialsSecret: s3-risingwave      # clés ACCESS_KEY_ID / ACCESS_SECRET_KEY
+
+secretStoreSecret: risingwave-secret-store   # clé privateKey (128 bits, hex)
+
+resources:
+  meta:      {requests: {cpu: 250m, memory: 512Mi},  limits: {memory: 1Gi}}
+  frontend:  {requests: {cpu: 250m, memory: 512Mi},  limits: {memory: 1Gi}}
+  compute:   {requests: {cpu: 500m, memory: 2Gi},    limits: {memory: 4Gi}}
+  compactor: {requests: {cpu: 250m, memory: 512Mi},  limits: {memory: 2Gi}}
+
+replicas:
+  meta: 1
+  frontend: 1
+  compute: 1
+  compactor: 1
+
+# ServiceMonitor par composant (nécessite les CRD Prometheus Operator).
+monitoring: false
+
+ingress:
+  enabled: false
+  className: nginx
+  clusterIssuer: ""
+  host: risingwave.example.test

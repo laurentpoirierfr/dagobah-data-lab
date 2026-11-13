@@ -1,0 +1,129 @@
+# Quickwit (moteur de recherche logs/traces sur S3) — mode distribué, pour tests.
+#
+#   données    : Garage S3, s3://quickwit/indexes (path-style, région garage)
+#   metastore  : PostgreSQL pg-main, base 'quickwit', rôle 'quickwit'
+#   UI / API   : https://quickwit.{{ .Values.domain }}  (basic auth admin)
+#   interne    : http://quickwit-searcher.quickwit.svc:7280 (recherche)
+#                http://quickwit-indexer.quickwit.svc:7280  (ingestion)
+
+fullnameOverride: quickwit
+
+# Le chart (0.8.17) déploie v0.8.2 par défaut : on force la dernière version.
+image:
+  tag: v0.9.3
+
+# Identifiants injectés dans tous les composants.
+environment:
+  - name: AWS_ACCESS_KEY_ID
+    valueFrom:
+      secretKeyRef: {name: s3-quickwit, key: ACCESS_KEY_ID}
+  - name: AWS_SECRET_ACCESS_KEY
+    valueFrom:
+      secretKeyRef: {name: s3-quickwit, key: ACCESS_SECRET_KEY}
+  - name: AWS_REGION
+    value: garage
+  - name: QW_PG_PASSWORD
+    valueFrom:
+      secretKeyRef: {name: pg-quickwit, key: password}
+
+config:
+  version: 0.8
+  listen_address: 0.0.0.0
+  gossip_listen_port: 7282
+  data_dir: /quickwit/qwdata
+  # ${QW_PG_PASSWORD} est interpolé par Quickwit au démarrage (variable d'environnement).
+  metastore_uri: postgres://quickwit:${QW_PG_PASSWORD}@pg-main-rw.databases.svc:5432/quickwit
+  default_index_root_uri: s3://quickwit/indexes
+  storage:
+    s3:
+      flavor: garage                 # région "garage" + path-style
+      endpoint: http://garage.garage.svc:3900
+      region: garage
+      force_path_style_access: true
+      # Quickwit envoie par défaut un checksum CRC32C (x-amz-checksum en trailer,
+      # aws-chunked) : Garage répond "Invalid payload signature". 'md5' ne suffit pas
+      # (le SDK ajoute encore son CRC32) ; seul 'disabled' repasse le SDK en
+      # RequestChecksumCalculation::WhenRequired. L'intégrité reste assurée par la
+      # signature SigV4 (SHA-256 du corps).
+      checksum_algorithm: disabled
+
+# Dimensionnement « tests » : un exemplaire de chaque rôle.
+searcher:
+  replicaCount: 1
+  resources:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {memory: 1Gi}
+
+indexer:
+  replicaCount: 1
+  resources:
+    requests: {cpu: 200m, memory: 512Mi}
+    limits: {memory: 2Gi}
+  # Cache local des splits et file d'ingestion (WAL) : persistant sur local-data.
+  persistentVolume:
+    enabled: true
+    storage: 5Gi
+    storageClass: {{ .Values.storageClass }}
+
+metastore:
+  replicaCount: 1
+  resources:
+    requests: {cpu: 50m, memory: 128Mi}
+    limits: {memory: 512Mi}
+
+control_plane:
+  resources:
+    requests: {cpu: 20m, memory: 64Mi}
+    limits: {memory: 256Mi}
+
+janitor:
+  resources:
+    requests: {cpu: 20m, memory: 64Mi}
+    limits: {memory: 256Mi}
+
+# Supervision (étape 16) : ServiceMonitor sur /metrics.
+serviceMonitor:
+  enabled: true
+  interval: 30s
+
+ingress:
+  enabled: true
+  className: {{ .Values.ingressClass }}
+  annotations:
+    cert-manager.io/cluster-issuer: {{ .Values.clusterIssuer }}
+    nginx.ingress.kubernetes.io/proxy-body-size: 100m
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    # Quickwit n'a pas d'authentification : basic auth nginx (secret quickwit-basic-auth).
+    nginx.ingress.kubernetes.io/auth-type: basic
+    nginx.ingress.kubernetes.io/auth-secret: quickwit-basic-auth
+    nginx.ingress.kubernetes.io/auth-realm: "Quickwit"
+  hosts:
+    - host: quickwit.{{ .Values.domain }}
+      paths:
+        # Ingestion (API native et API Elasticsearch bulk) -> indexer
+        - path: /api/v1/.*/ingest
+          pathType: ImplementationSpecific
+          service: indexer
+          port: rest
+        - path: /api/v1/_elastic/bulk
+          pathType: ImplementationSpecific
+          service: indexer
+          port: rest
+        - path: /api/v1/_elastic/.*/_bulk
+          pathType: ImplementationSpecific
+          service: indexer
+          port: rest
+        # Gestion des index -> metastore
+        - path: /api/v1/indexes
+          pathType: Prefix
+          service: metastore
+          port: rest
+        # Tout le reste (UI, recherche) -> searcher
+        - path: /
+          pathType: Prefix
+          service: searcher
+          port: rest
+  tls:
+    - secretName: quickwit-tls
+      hosts:
+        - quickwit.{{ .Values.domain }}

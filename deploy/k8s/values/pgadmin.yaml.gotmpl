@@ -1,0 +1,60 @@
+# pgAdmin : interface web PostgreSQL — https://pgadmin.{{ .Values.domain }}
+# Connexion : admin@example.com / mot de passe du secret pgadmin-auth (make ui-credentials).
+# Le serveur pg-main est préconfiguré ; mot de passe postgres : make ui-credentials.
+
+env:
+  # pgAdmin refuse les adresses en .test (domaine à usage spécial) -> example.com.
+  email: admin@example.com
+  enhanced_cookie_protection: "False"
+
+existingSecret: pgadmin-auth
+secretKeys:
+  pgadminPasswordKey: password
+
+serverDefinitions:
+  enabled: true
+  resourceType: ConfigMap
+  servers:
+    pgMainRw:
+      Name: "pg-main (primaire, rw)"
+      Group: "k8s"
+      Host: "pg-main-rw.databases.svc"
+      Port: 5432
+      Username: "postgres"
+      MaintenanceDB: "postgres"
+      SSLMode: "require"
+    pgMainRo:
+      Name: "pg-main (réplicas, ro)"
+      Group: "k8s"
+      Host: "pg-main-ro.databases.svc"
+      Port: 5432
+      Username: "postgres"
+      MaintenanceDB: "postgres"
+      SSLMode: "require"
+
+persistentVolume:
+  enabled: true
+  size: 1Gi
+  storageClass: {{ .Values.storageClass }}
+
+resources:
+  requests:
+    cpu: 20m
+    memory: 192Mi
+  limits:
+    memory: 512Mi
+
+ingress:
+  enabled: true
+  ingressClassName: {{ .Values.ingressClass }}
+  annotations:
+    cert-manager.io/cluster-issuer: {{ .Values.clusterIssuer }}
+  hosts:
+    - host: pgadmin.{{ .Values.domain }}
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: pgadmin-tls
+      hosts:
+        - pgadmin.{{ .Values.domain }}

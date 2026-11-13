@@ -1,0 +1,6 @@
+apiVersion: v2
+name: risingwave
+description: Instance RisingWave (CR RisingWave de l'opérateur) — meta store PostgreSQL CNPG, state store S3 Garage
+type: application
+version: 0.1.0
+appVersion: "v3.1.1"

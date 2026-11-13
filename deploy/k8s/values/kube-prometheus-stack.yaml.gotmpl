@@ -1,0 +1,179 @@
+# Supervision : Prometheus + Alertmanager + Grafana (kube-prometheus-stack).
+#
+#   Grafana      : https://grafana.{{ .Values.domain }}       (admin / make ui-credentials)
+#   Prometheus   : https://prometheus.{{ .Values.domain }}    (basic auth admin)
+#   Alertmanager : https://alertmanager.{{ .Values.domain }}  (basic auth admin)
+#
+# Collecte : tous les ServiceMonitor / PodMonitor / PrometheusRule du cluster
+# (pg-main, Garage, Redpanda, RisingWave… activés dans leurs values).
+
+# minikube : etcd, controller-manager, scheduler et kube-proxy n'écoutent que sur
+# 127.0.0.1 dans le nœud. Leurs cibles seraient toujours DOWN : on désactive.
+kubeEtcd:
+  enabled: false
+kubeControllerManager:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeProxy:
+  enabled: false
+defaultRules:
+  rules:
+    etcd: false
+    kubeControllerManager: false
+    kubeSchedulerAlerting: false
+    kubeSchedulerRecording: false
+    kubeProxy: false
+
+prometheus:
+  ingress:
+    enabled: true
+    ingressClassName: {{ .Values.ingressClass }}
+    annotations:
+      cert-manager.io/cluster-issuer: {{ .Values.clusterIssuer }}
+      nginx.ingress.kubernetes.io/auth-type: basic
+      nginx.ingress.kubernetes.io/auth-secret: monitoring-basic-auth
+      nginx.ingress.kubernetes.io/auth-realm: "Prometheus"
+    hosts:
+      - prometheus.{{ .Values.domain }}
+    paths: ["/"]
+    pathType: Prefix
+    tls:
+      - secretName: prometheus-tls
+        hosts: [prometheus.{{ .Values.domain }}]
+  prometheusSpec:
+    # Prend tous les moniteurs/règles du cluster, pas seulement ceux de ce chart.
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    probeSelectorNilUsesHelmValues: false
+    scrapeInterval: 30s
+    retention: 7d
+    retentionSize: 8GB
+    externalUrl: https://prometheus.{{ .Values.domain }}
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: {{ .Values.storageClass }}
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 10Gi
+    resources:
+      requests:
+        cpu: 200m
+        memory: 1Gi
+      limits:
+        memory: 3Gi
+
+alertmanager:
+  ingress:
+    enabled: true
+    ingressClassName: {{ .Values.ingressClass }}
+    annotations:
+      cert-manager.io/cluster-issuer: {{ .Values.clusterIssuer }}
+      nginx.ingress.kubernetes.io/auth-type: basic
+      nginx.ingress.kubernetes.io/auth-secret: monitoring-basic-auth
+      nginx.ingress.kubernetes.io/auth-realm: "Alertmanager"
+    hosts:
+      - alertmanager.{{ .Values.domain }}
+    paths: ["/"]
+    pathType: Prefix
+    tls:
+      - secretName: alertmanager-tls
+        hosts: [alertmanager.{{ .Values.domain }}]
+  alertmanagerSpec:
+    externalUrl: https://alertmanager.{{ .Values.domain }}
+    storage:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: {{ .Values.storageClass }}
+          accessModes: ["ReadWriteOnce"]
+          resources:
+            requests:
+              storage: 1Gi
+    resources:
+      requests:
+        cpu: 20m
+        memory: 64Mi
+      limits:
+        memory: 256Mi
+
+grafana:
+  admin:
+    existingSecret: grafana-admin          # créé par le hook prepare
+    userKey: admin-user
+    passwordKey: admin-password
+  persistence:
+    enabled: true
+    storageClassName: {{ .Values.storageClass }}
+    size: 1Gi
+  ingress:
+    enabled: true
+    ingressClassName: {{ .Values.ingressClass }}
+    annotations:
+      cert-manager.io/cluster-issuer: {{ .Values.clusterIssuer }}
+    hosts:
+      - grafana.{{ .Values.domain }}
+    tls:
+      - secretName: grafana-tls
+        hosts: [grafana.{{ .Values.domain }}]
+  grafana.ini:
+    server:
+      root_url: https://grafana.{{ .Values.domain }}
+  resources:
+    requests:
+      cpu: 50m
+      memory: 192Mi
+    limits:
+      memory: 512Mi
+
+  # Alias : le tableau de bord RisingWave référence la datasource uid 'risedev-prometheus'.
+  additionalDataSources:
+    - name: Prometheus (RisingWave)
+      uid: risedev-prometheus
+      type: prometheus
+      access: proxy
+      url: http://kube-prometheus-stack-prometheus.monitoring:9090
+
+  # Tableaux de bord des composants du projet (dossier "k8s" dans Grafana).
+  dashboardProviders:
+    dashboardproviders.yaml:
+      apiVersion: 1
+      providers:
+        - name: k8s
+          folder: k8s
+          type: file
+          disableDeletion: false
+          editable: true
+          options:
+            path: /var/lib/grafana/dashboards/k8s
+  dashboards:
+    k8s:
+      cloudnative-pg:
+        gnetId: 20417
+        revision: 4
+        datasource:
+          - name: DS_PROMETHEUS
+            value: Prometheus
+          - name: DS_EXPRESSION
+            value: __expr__
+      redpanda-ops:
+        url: https://raw.githubusercontent.com/redpanda-data/observability/main/grafana-dashboards/Redpanda-Ops-Dashboard.json
+        datasource:
+          - name: DS_PROMETHEUS
+            value: Prometheus
+      garage:
+        url: https://git.deuxfleurs.fr/Deuxfleurs/garage/raw/tag/v2.5.0/script/telemetry/grafana-garage-dashboard-prometheus.json
+      risingwave:
+        url: https://raw.githubusercontent.com/risingwavelabs/risingwave/v3.1.1/grafana/risingwave-user-dashboard.json
+
+nodeExporter:
+  enabled: true
+prometheus-node-exporter:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      memory: 64Mi

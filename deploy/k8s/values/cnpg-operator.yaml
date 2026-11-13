@@ -1,0 +1,15 @@
+# Opérateur CloudNativePG : installe les CRD (Cluster, Backup, Pooler…) et le
+# contrôleur qui gère les instances PostgreSQL.
+crds:
+  create: true
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    memory: 512Mi
+
+# Supervision de l'opérateur (PodMonitor).
+monitoring:
+  podMonitorEnabled: true

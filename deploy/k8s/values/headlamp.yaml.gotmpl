@@ -1,0 +1,35 @@
+# Headlamp : interface web Kubernetes — https://headlamp.{{ .Values.domain }}
+# Connexion par jeton de service account : make ui-credentials
+
+config:
+  inClusterContextName: {{ .Values.kubeContext }}
+
+# Le service account 'headlamp' est cluster-admin : son jeton donne tous les droits.
+serviceAccount:
+  create: true
+  name: headlamp
+clusterRoleBinding:
+  create: true
+  clusterRoleName: cluster-admin
+
+resources:
+  requests:
+    cpu: 20m
+    memory: 64Mi
+  limits:
+    memory: 256Mi
+
+ingress:
+  enabled: true
+  ingressClassName: {{ .Values.ingressClass }}
+  annotations:
+    cert-manager.io/cluster-issuer: {{ .Values.clusterIssuer }}
+  hosts:
+    - host: headlamp.{{ .Values.domain }}
+      paths:
+        - path: /
+          type: Prefix
+  tls:
+    - secretName: headlamp-tls
+      hosts:
+        - headlamp.{{ .Values.domain }}

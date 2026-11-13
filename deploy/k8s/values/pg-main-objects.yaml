@@ -1,0 +1,8 @@
+# Objets déclaratifs de pg-main.
+cluster: pg-main
+
+publications:
+  # CDC vers RisingWave : toutes les tables de la base 'app' (y compris futures).
+  - name: rw_cdc
+    dbname: app
+    allTables: true

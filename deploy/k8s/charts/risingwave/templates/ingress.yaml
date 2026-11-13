@@ -1,0 +1,27 @@
+{{- if .Values.ingress.enabled }}
+# Tableau de bord RisingWave (servi par le nœud meta, port 5691).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ .Values.name }}-dashboard
+  {{- with .Values.ingress.clusterIssuer }}
+  annotations:
+    cert-manager.io/cluster-issuer: {{ . }}
+  {{- end }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  tls:
+    - hosts: [{{ .Values.ingress.host | quote }}]
+      secretName: {{ .Values.name }}-dashboard-tls
+  rules:
+    - host: {{ .Values.ingress.host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Values.name }}-meta
+                port:
+                  number: 5691
+{{- end }}

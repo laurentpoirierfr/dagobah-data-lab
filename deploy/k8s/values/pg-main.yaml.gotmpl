@@ -1,0 +1,141 @@
+# Instance PostgreSQL 'pg-main' gérée par CloudNativePG.
+# 3 instances (1 primaire + 2 réplicas en streaming), une par nœud.
+#
+# Services créés par l'opérateur (namespace databases) :
+#   pg-main-rw  -> primaire (lecture/écriture)
+#   pg-main-ro  -> réplicas (lecture seule)
+#   pg-main-r   -> n'importe quelle instance
+# Secrets : pg-main-app (utilisateur app), pg-main-superuser (postgres).
+
+# Noms courts : Cluster pg-main, services pg-main-rw/ro/r, secrets pg-main-app.
+fullnameOverride: pg-main
+
+type: postgresql
+mode: standalone
+
+version:
+  postgresql: "17"
+
+cluster:
+  instances: 3
+
+  storage:
+    size: 2Gi
+    storageClass: {{ .Values.storageClass }}
+
+  # Une instance par nœud (anti-affinité sur le hostname, pas sur la zone).
+  affinity:
+    topologyKey: kubernetes.io/hostname
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      memory: 1Gi
+
+  enableSuperuserAccess: true
+
+  # Supervision : PodMonitor (métriques de l'exporteur CNPG) + règles d'alerte.
+  monitoring:
+    enabled: true
+    podMonitor:
+      enabled: true
+    prometheusRule:
+      enabled: true
+
+  # Rôles gérés par l'opérateur. Mot de passe : secret créé par le hook
+  # scripts/pg-role-secret.sh (copié dans le namespace de l'application).
+  roles:
+    - name: risingwave
+      ensure: present
+      login: true
+      comment: Meta store RisingWave
+      passwordSecret:
+        name: pg-main-role-risingwave
+    - name: quickwit
+      ensure: present
+      login: true
+      comment: Metastore Quickwit
+      passwordSecret:
+        name: pg-main-role-quickwit
+    # CDC : réplication logique vers RisingWave (lecture seule sur toutes les tables).
+    - name: rw_cdc
+      ensure: present
+      login: true
+      replication: true
+      inRoles:
+        - pg_read_all_data
+      comment: CDC RisingWave (replication logique)
+      passwordSecret:
+        name: pg-main-role-rw-cdc
+
+  initdb:
+    database: app
+    owner: app
+
+  postgresql:
+    parameters:
+      max_connections: "100"
+      shared_buffers: "128MB"
+
+  # Archivage WAL continu + sauvegardes de base via le plugin barman-cloud.
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      enabled: true
+      isWALArchiver: true
+      parameters:
+        barmanObjectName: pg-main-backups
+
+# Bases supplémentaires (ressources CNPG 'Database').
+databases:
+  - name: risingwave
+    owner: risingwave
+    ensure: present
+    databaseReclaimPolicy: retain
+  - name: quickwit
+    owner: quickwit
+    ensure: present
+    databaseReclaimPolicy: retain
+
+# Sauvegardes vers Garage (S3) : s3://cnpg-backups/pg-main/
+backups:
+  enabled: true
+  method: plugin
+  target: prefer-standby
+  pluginConfiguration:
+    name: barman-cloud.cloudnative-pg.io
+  objectStore:
+    create: true
+  provider: s3
+  endpointURL: http://garage.garage.svc:3900
+  destinationPath: s3://cnpg-backups/pg-main
+  s3:
+    region: garage
+    bucket: cnpg-backups
+    path: /pg-main
+  # Secret créé par 'make s3-init' (ACCESS_KEY_ID / ACCESS_SECRET_KEY).
+  secret:
+    create: false
+    name: s3-cnpg
+  wal:
+    compression: gzip
+    encryption: ""        # Garage ne gère pas SSE-S3 (AES256)
+    maxParallel: 2
+  data:
+    compression: gzip
+    encryption: ""
+    jobs: 2
+  # Garage vérifie la région de la signature S3 ; l'ObjectStore ne la transmet pas.
+  instanceSidecarConfiguration:
+    env:
+      - name: AWS_DEFAULT_REGION
+        value: garage
+  retentionPolicy: "14d"
+  scheduledBackups:
+    - name: daily
+      schedule: "0 0 2 * * *"     # tous les jours à 02:00 (format cron à 6 champs)
+      backupOwnerReference: self
+      method: plugin
+      pluginConfiguration:
+        name: barman-cloud.cloudnative-pg.io

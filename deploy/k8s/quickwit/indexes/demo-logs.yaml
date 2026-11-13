@@ -1,0 +1,39 @@
+# Index de test Quickwit : logs applicatifs JSON.
+# Création : make qw-index-create INDEX=demo-logs
+version: 0.8
+index_id: demo-logs
+
+doc_mapping:
+  mode: dynamic              # champs inconnus acceptés et indexés
+  field_mappings:
+    - name: timestamp
+      type: datetime
+      input_formats: [rfc3339, unix_timestamp]
+      fast: true
+      fast_precision: seconds
+    - name: level
+      type: text
+      tokenizer: raw         # valeur exacte (ERROR, WARN…), agrégeable
+      fast: true
+    - name: service
+      type: text
+      tokenizer: raw
+      fast: true
+    - name: message
+      type: text
+      tokenizer: default
+      record: position       # requêtes de phrase "connection refused"
+    - name: latency_ms
+      type: u64
+      fast: true
+  timestamp_field: timestamp
+
+search_settings:
+  default_search_fields: [message]
+
+indexing_settings:
+  commit_timeout_secs: 10
+
+retention:
+  period: 7 days
+  schedule: daily

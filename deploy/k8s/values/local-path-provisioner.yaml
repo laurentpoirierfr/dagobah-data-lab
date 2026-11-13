@@ -1,0 +1,29 @@
+# local-path-provisioner : PVC stockés dans ~/Projects/dagobah-data-lab/data/volumes (hôte),
+# monté sur /mnt/k8s-data dans chaque nœud par cluster.sh (/data est réservé par minikube) (--mount-string).
+#
+# Fichier non templaté (.yaml) : pathPattern contient des {{ }} destinés au
+# provisioner, pas à helmfile.
+
+storageClass:
+  create: true
+  name: local-data
+  defaultClass: true
+  defaultVolumeType: hostPath
+  # Retain : supprimer un PVC ne supprime pas les données sur l'hôte.
+  reclaimPolicy: Retain
+  # Dossier partagé par tous les nœuds : pas d'affinité de nœud, binding immédiat.
+  volumeBindingMode: Immediate
+  # Chemin stable (le provisioner impose un sous-dossier sous <ns>/<pvc>/) : un PVC recréé (même namespace/nom) retrouve ses données,
+  # y compris après 'make recreate'.
+  pathPattern: "{{ .PVC.Namespace }}/{{ .PVC.Name }}/data"
+
+# sharedFileSystemPath et nodePathMap sont exclusifs.
+nodePathMap: []
+sharedFileSystemPath: /mnt/k8s-data/volumes
+
+resources:
+  requests:
+    cpu: 10m
+    memory: 32Mi
+  limits:
+    memory: 128Mi

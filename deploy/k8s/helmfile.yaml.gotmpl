@@ -1,0 +1,292 @@
+# helmfile du cluster minikube 'k8s' (3 nœuds, *.k8s.test).
+#
+#   helmfile -f deploy/k8s/helmfile.yaml.gotmpl diff     # aperçu (plugin helm-diff)
+#   helmfile -f deploy/k8s/helmfile.yaml.gotmpl apply    # applique les différences
+#
+# Ou depuis la racine du projet : make diff / make apply / make sync.
+
+environments:
+  # Environnement par défaut : le cluster minikube local.
+  default:
+    values:
+      - environments/k8s.yaml
+
+---
+repositories:
+  - name: cnpg
+    url: https://cloudnative-pg.github.io/charts
+  - name: headlamp
+    url: https://kubernetes-sigs.github.io/headlamp/
+  - name: runix
+    url: https://helm.runix.net
+  - name: bjw-s
+    url: https://bjw-s-labs.github.io/helm-charts
+  - name: risingwavelabs
+    url: https://risingwavelabs.github.io/helm-charts/
+  - name: redpanda
+    url: https://charts.redpanda.com
+  - name: prometheus-community
+    url: https://prometheus-community.github.io/helm-charts
+  - name: quickwit
+    url: https://helm.quickwit.io
+
+helmDefaults:
+  # Garde-fou : on ne vise jamais un autre contexte que celui de l'environnement.
+  kubeContext: {{ .Values.kubeContext }}
+  createNamespace: true
+  wait: true
+  waitForJobs: true
+  timeout: 300
+  historyMax: 5
+
+releases:
+  # Stockage persistant : StorageClass par défaut 'local-data' -> data/volumes/<ns>/<pvc>
+  - name: local-path-provisioner
+    namespace: local-path-storage
+    chart: git::https://github.com/rancher/local-path-provisioner.git@deploy/chart/local-path-provisioner?ref=v0.0.37
+    labels:
+      tier: infra
+    values:
+      - values/local-path-provisioner.yaml
+
+  # PostgreSQL : opérateur CloudNativePG puis une instance 3 nœuds.
+  - name: cnpg
+    namespace: cnpg-system
+    chart: cnpg/cloudnative-pg
+    version: 0.29.1
+    labels:
+      tier: infra
+    needs:
+      - monitoring/kube-prometheus-stack
+      - local-path-storage/local-path-provisioner
+    values:
+      - values/cnpg-operator.yaml
+
+  # Plugin de sauvegarde barman-cloud (CNPG-I) : WAL + base vers S3 (Garage).
+  - name: barman-cloud
+    namespace: cnpg-system
+    chart: cnpg/plugin-barman-cloud
+    version: 0.9.0
+    labels:
+      tier: infra
+    needs:
+      - cnpg-system/cnpg
+
+  - name: pg-main
+    namespace: databases
+    chart: cnpg/cluster
+    version: 0.9.0
+    labels:
+      tier: data
+    hooks:
+      # Mot de passe du rôle 'risingwave' (databases/pg-main-role-risingwave),
+      # copié dans risingwave/pg-risingwave pour RisingWave.
+      - events: ["prepare"]
+        showlogs: true
+        command: scripts/pg-role-secret.sh
+        args: ["{{ .Values.kubeContext }}", "risingwave", "risingwave", "pg-risingwave"]
+      - events: ["prepare"]
+        showlogs: true
+        command: scripts/pg-role-secret.sh
+        args: ["{{ .Values.kubeContext }}", "rw_cdc", "risingwave", "pg-rw-cdc"]
+      - events: ["prepare"]
+        showlogs: true
+        command: scripts/pg-role-secret.sh
+        args: ["{{ .Values.kubeContext }}", "quickwit", "quickwit", "pg-quickwit"]
+    needs:
+      - monitoring/kube-prometheus-stack
+      - cnpg-system/cnpg
+      - cnpg-system/barman-cloud
+      - garage/garage
+    # Les CRD postgresql.cnpg.io n'existent qu'après l'installation de l'opérateur.
+    disableValidationOnInstall: true
+    values:
+      - values/pg-main.yaml.gotmpl
+
+  # S3 : Garage (sauvegardes CloudNativePG + données du projet). Puis : make s3-init
+  - name: garage
+    namespace: garage
+    chart: git::https://git.deuxfleurs.fr/Deuxfleurs/garage.git@script/helm/garage?ref=v2.5.0
+    labels:
+      tier: infra
+    needs:
+      - monitoring/kube-prometheus-stack
+      - local-path-storage/local-path-provisioner
+    hooks:
+      - events: ["prepare"]
+        showlogs: true
+        command: scripts/ensure-secret.sh
+        args: ["{{ .Values.kubeContext }}", "garage", "garage-rpc-secret", "rpcSecret=hex32"]
+      - events: ["prepare"]
+        showlogs: true
+        command: scripts/ensure-secret.sh
+        args: ["{{ .Values.kubeContext }}", "garage", "garage-admin-token", "token=hex32"]
+      # Layout, buckets, clés et secrets (s3-cnpg pour pg-main) après chaque sync.
+      - events: ["postsync"]
+        showlogs: true
+        command: scripts/garage-init.sh
+        args: ["{{ .Values.kubeContext }}", "{{ .Values.domain }}"]
+    values:
+      - values/garage.yaml.gotmpl
+
+  # Objets PostgreSQL déclaratifs de pg-main (publications pour le CDC).
+  - name: pg-main-objects
+    namespace: databases
+    chart: ./charts/pg-objects
+    labels:
+      tier: data
+    needs:
+      - databases/pg-main
+    disableValidationOnInstall: true
+    values:
+      - values/pg-main-objects.yaml
+
+  # --- RisingWave (streaming SQL) ------------------------------------------------
+  - name: risingwave-operator
+    namespace: risingwave-operator-system
+    chart: risingwavelabs/risingwave-operator
+    version: 0.1.40
+    labels:
+      tier: infra
+
+  # Instance RisingWave : meta store pg-main (PostgreSQL), state store Garage (S3).
+  - name: risingwave
+    namespace: risingwave
+    chart: ./charts/risingwave
+    labels:
+      tier: data
+    needs:
+      - monitoring/kube-prometheus-stack
+      - risingwave-operator-system/risingwave-operator
+      - databases/pg-main
+      - garage/garage
+    # La CRD RisingWave n'existe qu'après l'installation de l'opérateur.
+    disableValidationOnInstall: true
+    hooks:
+      - events: ["prepare"]
+        showlogs: true
+        command: scripts/ensure-secret.sh
+        args: ["{{ .Values.kubeContext }}", "risingwave", "risingwave-secret-store", "privateKey=hex16"]
+    values:
+      - values/risingwave.yaml.gotmpl
+
+  # --- Redpanda (Kafka) + Console ----------------------------------------------
+  - name: redpanda
+    namespace: redpanda
+    chart: redpanda/redpanda
+    version: 26.2.5
+    labels:
+      tier: data
+    needs:
+      - monitoring/kube-prometheus-stack
+      - local-path-storage/local-path-provisioner
+    hooks:
+      # Basic auth de la console : clé 'auth' au format htpasswd (bcrypt), lue par ingress-nginx.
+      - events: ["prepare"]
+        showlogs: true
+        command: scripts/ensure-secret.sh
+        args: ["{{ .Values.kubeContext }}", "redpanda", "redpanda-console-auth",
+               "username=value:admin", "password=pass", "auth=bcrypt:admin:password"]
+    values:
+      - values/redpanda.yaml.gotmpl
+
+  # --- Quickwit (recherche logs/traces sur S3), mode distribué -----------------
+  - name: quickwit
+    namespace: quickwit
+    chart: quickwit/quickwit
+    version: 0.8.17
+    labels:
+      tier: data
+    needs:
+      - databases/pg-main
+      - garage/garage
+      - monitoring/kube-prometheus-stack
+    hooks:
+      - events: ["prepare"]
+        showlogs: true
+        command: scripts/ensure-secret.sh
+        args: ["{{ .Values.kubeContext }}", "quickwit", "quickwit-basic-auth",
+               "username=value:admin", "password=pass", "auth=bcrypt:admin:password"]
+    values:
+      - values/quickwit.yaml.gotmpl
+
+  # --- Supervision : Prometheus + Alertmanager + Grafana ------------------------
+  - name: kube-prometheus-stack
+    namespace: monitoring
+    chart: prometheus-community/kube-prometheus-stack
+    version: 93.2.2
+    labels:
+      tier: monitoring
+    # Les CRD monitoring.coreos.com sont installées par ce chart lui-même.
+    disableValidationOnInstall: true
+    needs:
+      - local-path-storage/local-path-provisioner
+    hooks:
+      - events: ["prepare"]
+        showlogs: true
+        command: scripts/ensure-secret.sh
+        args: ["{{ .Values.kubeContext }}", "monitoring", "grafana-admin",
+               "admin-user=value:admin", "admin-password=pass"]
+      # Basic auth nginx pour Prometheus et Alertmanager (pas d'authentification native).
+      - events: ["prepare"]
+        showlogs: true
+        command: scripts/ensure-secret.sh
+        args: ["{{ .Values.kubeContext }}", "monitoring", "monitoring-basic-auth",
+               "username=value:admin", "password=pass", "auth=bcrypt:admin:password"]
+    values:
+      - values/kube-prometheus-stack.yaml.gotmpl
+
+  # --- Interfaces web ----------------------------------------------------------
+  # Headlamp : https://headlamp.<domaine>  (jeton : make ui-credentials)
+  - name: headlamp
+    namespace: headlamp
+    chart: headlamp/headlamp
+    version: 0.46.0
+    labels:
+      tier: ui
+    values:
+      - values/headlamp.yaml.gotmpl
+
+  # garage-webui : https://garage.<domaine>  (admin / mot de passe : make ui-credentials)
+  - name: garage-webui
+    namespace: garage
+    chart: bjw-s/app-template
+    version: 5.3.0
+    labels:
+      tier: ui
+    needs:
+      - garage/garage
+    hooks:
+      - events: ["prepare"]
+        showlogs: true
+        command: scripts/ensure-secret.sh
+        args: ["{{ .Values.kubeContext }}", "garage", "garage-webui-auth",
+               "username=value:admin", "password=pass", "AUTH_USER_PASS=bcrypt:admin:password"]
+    values:
+      - values/garage-webui.yaml.gotmpl
+
+  # pgAdmin : https://pgadmin.<domaine>  (admin@<domaine> / mot de passe : make ui-credentials)
+  - name: pgadmin
+    namespace: pgadmin
+    chart: runix/pgadmin4
+    version: 1.71.0
+    labels:
+      tier: ui
+    needs:
+      - databases/pg-main
+    hooks:
+      - events: ["prepare"]
+        showlogs: true
+        command: scripts/ensure-secret.sh
+        args: ["{{ .Values.kubeContext }}", "pgadmin", "pgadmin-auth", "password=pass"]
+    values:
+      - values/pgadmin.yaml.gotmpl
+
+  - name: podinfo
+    namespace: podinfo
+    chart: oci://ghcr.io/stefanprodan/charts/podinfo
+    version: 6.17.0
+    labels:
+      tier: demo
+    values:
+      - values/podinfo.yaml.gotmpl

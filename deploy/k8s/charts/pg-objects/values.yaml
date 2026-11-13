@@ -1,0 +1,6 @@
+cluster: pg-main
+# publications:
+#   - name: rw_cdc            # nom k8s et nom PostgreSQL
+#     dbname: app
+#     allTables: true         # ou tables: [public.customers, ...]
+publications: []

@@ -1,0 +1,47 @@
+{{- $v := .Values }}
+apiVersion: risingwave.risingwavelabs.com/v1alpha1
+kind: RisingWave
+metadata:
+  name: {{ $v.name }}
+  labels:
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  image: {{ $v.image }}
+  enableDefaultServiceMonitor: {{ $v.monitoring }}
+  metaStore:
+    postgresql:
+      host: {{ $v.metaStore.host }}
+      port: {{ $v.metaStore.port }}
+      database: {{ $v.metaStore.database }}
+      credentials:
+        secretName: {{ $v.metaStore.credentialsSecret }}
+        usernameKeyRef: username
+        passwordKeyRef: password
+  stateStore:
+    dataDirectory: {{ $v.stateStore.dataDirectory }}
+    s3:
+      endpoint: {{ $v.stateStore.endpoint }}
+      region: {{ $v.stateStore.region }}
+      bucket: {{ $v.stateStore.bucket }}
+      forcePathStyle: true
+      credentials:
+        secretName: {{ $v.stateStore.credentialsSecret }}
+        accessKeyRef: ACCESS_KEY_ID
+        secretAccessKeyRef: ACCESS_SECRET_KEY
+  secretStore:
+    privateKey:
+      secretRef:
+        name: {{ $v.secretStoreSecret }}
+        key: privateKey
+  components:
+{{- range $c := list "meta" "frontend" "compute" "compactor" }}
+    {{ $c }}:
+      nodeGroups:
+        - name: ""
+          replicas: {{ index $v.replicas $c }}
+          template:
+            spec:
+              resources:
+                {{- toYaml (index $v.resources $c) | nindent 16 }}
+{{- end }}
